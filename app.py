@@ -1,6 +1,8 @@
 # importing dependencies
 from dotenv import load_dotenv
 import streamlit as st
+import os,glob
+from langchain.llms import VLLMOpenAI
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
@@ -19,6 +21,27 @@ Follow Up Input: {question}
 Standalone question:"""
 
 CUSTOM_QUESTION_PROMPT = PromptTemplate.from_template(custom_template)
+INFERENCE_SERVER_URL = "https://parasol-instruct-chatbot-app-ai.apps.cluster-98698.98698.sandbox2900.opentlc.com"
+MAX_NEW_TOKENS = 512
+TOP_P = 0.95
+TEMPERATURE = 0.01
+PRESENCE_PENALTY = 1.03
+LOADED = False
+
+def load_pdfs():
+    text=""
+    dirname = os.getcwd() + "/docs/*.pdf"
+    print(dirname)
+    for filename in glob.glob(dirname):
+        print(filename)
+        if (filename.endswith(".pdf")):
+           pdf_file = open(filename, 'rb')
+           pdf_reader = PdfReader(pdf_file)
+           for page in pdf_reader.pages:
+               text+=page.extract_text()
+    text_chunks=get_chunks(text)
+    vectorstore=get_vectorstore(text_chunks)
+    st.session_state.conversation=get_conversationchain(vectorstore)
 
 # extracting text from pdf
 def get_pdf_text(docs):
@@ -47,7 +70,17 @@ def get_vectorstore(chunks):
 
 # generating conversation chain  
 def get_conversationchain(vectorstore):
-    llm=ChatOpenAI(temperature=0.2)
+    llm = VLLMOpenAI(
+        openai_api_key="EMPTY",
+	openai_api_base= f"{INFERENCE_SERVER_URL}/v1",
+        model_name="parasol-instruct",
+        max_tokens=MAX_NEW_TOKENS,
+        top_p=TOP_P,
+        temperature=TEMPERATURE,
+        presence_penalty=PRESENCE_PENALTY,
+        streaming=False,
+        verbose=False,
+    )
     memory = ConversationBufferMemory(memory_key='chat_history', 
                                       return_messages=True,
                                       output_key='answer') # using conversation buffer memory to hold past information
@@ -60,6 +93,9 @@ def get_conversationchain(vectorstore):
 
 # generating response from user queries and displaying them accordingly
 def handle_question(question):
+    if st.session_state.conversation == None:
+        st.warning("Please upload PDF's to chat with")
+        return;
     response=st.session_state.conversation({'question': question})
     st.session_state.chat_history=response["chat_history"]
     for i,msg in enumerate(st.session_state.chat_history):
@@ -100,7 +136,6 @@ def main():
                 
                 #create conversation chain
                 st.session_state.conversation=get_conversationchain(vectorstore)
-
 
 if __name__ == '__main__':
     main()
